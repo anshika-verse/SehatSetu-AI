@@ -1,0 +1,72 @@
+[
+  {
+    "id": "who-diarrhoea",
+    "kind": "health",
+    "title": "Diarrhoeal disease",
+    "publisher": "World Health Organization",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/diarrhoeal-disease",
+    "last_checked": "2026-11-05",
+    "keywords": ["diarrhoea", "diarrhea", "loose", "motion", "dast", "ors", "dehydration", "pet"],
+    "text": "The WHO diarrhoeal disease fact sheet describes diarrhoea as three or more loose or liquid stools per day, or more often than is normal for the person. It identifies dehydration as the most severe threat. Read the fact sheet for public-health measures. This app does not decide treatment for you."
+  },
+  {
+    "id": "who-dengue",
+    "kind": "health",
+    "title": "Dengue and severe dengue",
+    "publisher": "World Health Organization",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/dengue-and-severe-dengue",
+    "last_checked": "2026-11-05",
+    "keywords": ["dengue", "mosquito", "platelet", "fever"],
+    "text": "WHO describes dengue as a viral infection transmitted to humans through the bite of infected mosquitoes. Warning signs of severe dengue need urgent medical care. This app cannot tell whether a fever is dengue."
+  },
+  {
+    "id": "who-hypertension",
+    "kind": "health",
+    "title": "Hypertension",
+    "publisher": "World Health Organization",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/hypertension",
+    "last_checked": "2026-11-05",
+    "keywords": ["hypertension", "blood", "pressure", "bp"],
+    "text": "WHO describes hypertension as blood pressure that is too high. It is diagnosed by a healthcare professional using blood-pressure measurement, not by an app. Many people have no symptoms. A single home reading is not a diagnosis."
+  },
+  {
+    "id": "who-anaemia",
+    "kind": "term",
+    "title": "Haemoglobin",
+    "publisher": "World Health Organization",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/anaemia",
+    "last_checked": "2026-11-05",
+    "keywords": ["haemoglobin", "hemoglobin", "hb", "anaemia", "anemia"],
+    "text": "Haemoglobin is the protein in red blood cells that carries oxygen. WHO publishes anaemia guidance for health workers. A number on a report must be interpreted by a qualified professional. This app does not say whether a result is normal."
+  },
+  {
+    "id": "who-bp-term",
+    "kind": "term",
+    "title": "Blood pressure",
+    "publisher": "World Health Organization",
+    "url": "https://www.who.int/news-room/fact-sheets/detail/hypertension",
+    "last_checked": "2026-11-05",
+    "keywords": ["blood pressure", "systolic", "diastolic", "bp"],
+    "text": "Blood pressure is the force of blood pushing against the walls of the arteries. WHO explains how hypertension is assessed by trained personnel. This app does not interpret a reading or change any medicine."
+  },
+  {
+    "id": "pmjay",
+    "kind": "scheme",
+    "title": "Ayushman Bharat Pradhan Mantri Jan Arogya Yojana",
+    "publisher": "National Health Authority",
+    "url": "https://pmjay.gov.in/",
+    "last_checked": "2026-11-05",
+    "keywords": ["ayushman", "pmjay", "pm-jay"],
+    "text": "PM-JAY is the public health-insurance scheme described on the official portal. Eligibility, documents, and benefits are decided by the scheme authority. Check the official website or helpline. This app does not confirm that you are eligible."
+  },
+  {
+    "id": "nhm",
+    "kind": "scheme",
+    "title": "National Health Mission",
+    "publisher": "Ministry of Health and Family Welfare",
+    "url": "https://nhm.gov.in/",
+    "last_checked": "2026-11-05",
+    "keywords": ["nhm", "asha", "health mission"],
+    "text": "The National Health Mission is the Government of India programme described on nhm.gov.in, including community health services such as ASHA support. Local availability and the next step should be confirmed with the official health system."
+  }
+]
