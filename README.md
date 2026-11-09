@@ -1,6 +1,6 @@
 # SehatSetu AI
 
-SehatSetu AI helps people describe a health concern in Hindi or Hinglish, review the transcript, and prepare a patient-reported summary for a qualified clinician. It is not an AI doctor. It does not diagnose, prescribe, or recommend a dose.
+SehatSetu AI helps people describe a health concern , review the transcript, and prepare a patient-reported summary for a qualified clinician. It is not an AI doctor. It does not diagnose, prescribe, or recommend a dose.
 
 Speech uses the documented Gnani APIs when `GNANI_API_KEY` is set:
 
@@ -43,11 +43,3 @@ backend\.venv\Scripts\python.exe -m pytest backend
 cd frontend
 npm run build
 ```
-
-## Limits
-
-- Hindi and Hinglish only.
-- Emergency checks are a short phrase list. They cannot rule an emergency out.
-- Health explanations come from the local cited files, not from a live medical model.
-- Facility listings and appointment requests are DEMO data. A request is never a confirmed booking.
-- Raw audio and health details are not written to the database. The SQLite file stores only an app schema marker. Optional reminder text stays in the browser after consent.
