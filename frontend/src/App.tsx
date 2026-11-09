@@ -17,7 +17,7 @@ import { AssistantSelectorModal } from "./AssistantSelectorModal";
 import { HealthcareNearMe } from "./HealthcareNearMe";
 import { Sidebar, type NavScreen } from "./Sidebar";
 import { TopBar } from "./TopBar";
-import { HealthOverviewCards, type VitalIndicator } from "./HealthOverviewCards";
+import { HealthOverviewCards, type DynamicHealthParameter } from "./HealthOverviewCards";
 import { MedicalReportUpload } from "./MedicalReportUpload";
 import { MedicalHistorySection } from "./MedicalHistorySection";
 import { UpcomingAppointmentsCard } from "./UpcomingAppointmentsCard";
@@ -38,75 +38,6 @@ import { AlertCircle, Calendar, ArrowRight, ShieldCheck } from "lucide-react";
 export type Screen = NavScreen;
 
 const recorder = new WavRecorder();
-
-const defaultInitialVitals: VitalIndicator[] = [
-  {
-    id: "bp",
-    name: "Blood Pressure",
-    value: null,
-    unit: "mmHg",
-    recordedDate: null,
-    status: "none",
-    statusLabel: "Not recorded",
-    category: "Cardiovascular",
-    idealRange: "90/60 - 120/80 mmHg",
-  },
-  {
-    id: "glucose",
-    name: "Blood Glucose (Fasting)",
-    value: null,
-    unit: "mg/dL",
-    recordedDate: null,
-    status: "none",
-    statusLabel: "Not recorded",
-    category: "Metabolic",
-    idealRange: "70 - 99 mg/dL",
-  },
-  {
-    id: "heart_rate",
-    name: "Heart Rate",
-    value: null,
-    unit: "bpm",
-    recordedDate: null,
-    status: "none",
-    statusLabel: "Not recorded",
-    category: "Cardiovascular",
-    idealRange: "60 - 100 bpm",
-  },
-  {
-    id: "hemoglobin",
-    name: "Hemoglobin",
-    value: null,
-    unit: "g/dL",
-    recordedDate: null,
-    status: "none",
-    statusLabel: "Not recorded",
-    category: "Hematology",
-    idealRange: "12.0 - 17.5 g/dL",
-  },
-  {
-    id: "spo2",
-    name: "SpO2 (Pulse Oximetry)",
-    value: null,
-    unit: "%",
-    recordedDate: null,
-    status: "none",
-    statusLabel: "Not recorded",
-    category: "Respiratory",
-    idealRange: "95 - 100 %",
-  },
-  {
-    id: "temp",
-    name: "Body Temperature",
-    value: null,
-    unit: "°F",
-    recordedDate: null,
-    status: "none",
-    statusLabel: "Not recorded",
-    category: "General",
-    idealRange: "97.8 - 99.1 °F",
-  },
-];
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
@@ -136,13 +67,27 @@ export default function App() {
     }
   });
 
-  // Vitals State (persistent in localStorage)
-  const [vitals, setVitals] = useState<VitalIndicator[]>(() => {
+  // Dynamic Health Parameters (strictly populated from uploaded lab reports and logged readings)
+  const [vitals, setVitals] = useState<DynamicHealthParameter[]>(() => {
     try {
-      const saved = localStorage.getItem("sehatsetu_vitals");
-      if (saved) return JSON.parse(saved);
+      const saved = localStorage.getItem("sehatsetu_dynamic_vitals");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      // Migration from legacy state if user had actual recorded readings
+      const legacy = localStorage.getItem("sehatsetu_vitals");
+      if (legacy) {
+        const parsedLegacy = JSON.parse(legacy);
+        if (Array.isArray(parsedLegacy)) {
+          const validOnly = parsedLegacy.filter(
+            (v: any) => v && v.value !== null && v.value !== "" && v.value !== "--" && v.value !== "--/--"
+          );
+          if (validOnly.length > 0) return validOnly;
+        }
+      }
     } catch {}
-    return defaultInitialVitals;
+    return [];
   });
 
   // Conversation & Speech State
@@ -251,61 +196,302 @@ export default function App() {
     } catch {}
   }
 
-  function handleUpdateVital(id: string, val: string, date: string) {
+  function parseDateForComparison(dateStr: string | null | undefined): number {
+    if (!dateStr || dateStr === "Not recorded" || dateStr === "Not Available" || dateStr === "Recent") return 0;
+    const parsed = Date.parse(dateStr);
+    if (!isNaN(parsed)) return parsed;
+    const parts = dateStr.split(/[\/\-\.]/);
+    if (parts.length === 3) {
+      if (parts[2].length === 4) {
+        const d = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const y = parseInt(parts[2], 10);
+        return new Date(y, m, d).getTime();
+      } else if (parts[0].length === 4) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const d = parseInt(parts[2], 10);
+        return new Date(y, m, d).getTime();
+      }
+    }
+    return 0;
+  }
+
+  function handleUpdateVital(
+    id: string,
+    val: string,
+    date: string,
+    source: string = "Manual Log",
+    meta?: { name?: string; unit?: string; category?: string; referenceRange?: string }
+  ) {
+    const newTs = parseDateForComparison(date);
     setVitals((current) => {
-      const updated = current.map((v) => {
-        if (v.id === id) {
-          return {
-            ...v,
+      let updated = [...current];
+      const existingIdx = updated.findIndex((v) => v.id.toLowerCase() === id.toLowerCase());
+
+      if (existingIdx >= 0) {
+        const existing = updated[existingIdx];
+        const currentTs = parseDateForComparison(existing.recordedDate);
+        const isCurrentNewer =
+          existing.value !== null &&
+          existing.value !== "--" &&
+          existing.value !== "--/--" &&
+          currentTs > newTs &&
+          newTs > 0;
+
+        if (isCurrentNewer) {
+          // preserve in history
+          const prevHist = existing.history || [];
+          updated[existingIdx] = {
+            ...existing,
+            history: [
+              {
+                value: val,
+                unit: meta?.unit || existing.unit,
+                recordedDate: date,
+                source,
+                status: "normal",
+                statusLabel: "Within Range",
+                referenceRange: meta?.referenceRange || existing.referenceRange,
+              },
+              ...prevHist,
+            ],
+          };
+        } else {
+          // update active card
+          const prevHist = existing.history || [];
+          const hasExisting = existing.value !== null && existing.value !== "--" && existing.value !== "--/--";
+          const newHist = hasExisting
+            ? [
+                {
+                  value: existing.value,
+                  unit: existing.unit,
+                  recordedDate: existing.recordedDate || "Previous",
+                  source: existing.source || "Previous",
+                  status: existing.status,
+                  statusLabel: existing.statusLabel,
+                  referenceRange: existing.referenceRange,
+                },
+                ...prevHist,
+              ]
+            : prevHist;
+
+          updated[existingIdx] = {
+            ...existing,
             value: val,
+            unit: meta?.unit || existing.unit,
             recordedDate: date,
-            status: "normal" as const,
-            statusLabel: "LOGGED",
+            source,
+            status: "normal",
+            statusLabel: "Within Range",
+            referenceRange: meta?.referenceRange || existing.referenceRange,
+            history: newHist,
           };
         }
-        return v;
-      });
+      } else {
+        // New parameter created via manual entry
+        const newParam: DynamicHealthParameter = {
+          id,
+          name: meta?.name || id,
+          category: meta?.category || "General",
+          value: val,
+          unit: meta?.unit || "",
+          recordedDate: date,
+          source,
+          status: "normal",
+          statusLabel: "Within Range",
+          referenceRange: meta?.referenceRange || "",
+          history: [],
+        };
+        updated.push(newParam);
+      }
+
       try {
-        localStorage.setItem("sehatsetu_vitals", JSON.stringify(updated));
+        localStorage.setItem("sehatsetu_dynamic_vitals", JSON.stringify(updated));
       } catch {}
       return updated;
     });
   }
 
-  function handleSyncVitals(params: LabParameterItem[], date: string) {
+  function handleSyncVitals(params: LabParameterItem[], date: string, source: string = "Lab Report") {
+    if (!params || params.length === 0) return;
+    const reportTs = parseDateForComparison(date);
+
     setVitals((current) => {
-      const updated = current.map((vital) => {
-        const match = params.find((p) => {
-          const pName = p.name.toLowerCase();
-          if (vital.id === "bp" && (pName.includes("pressure") || pName.includes("bp"))) return true;
-          if (vital.id === "glucose" && (pName.includes("glucose") || pName.includes("sugar") || pName.includes("fasting"))) return true;
-          if (vital.id === "heart_rate" && (pName.includes("heart rate") || pName.includes("pulse"))) return true;
-          if (vital.id === "hemoglobin" && (pName.includes("hemoglobin") || pName.includes("hb"))) return true;
-          if (vital.id === "spo2" && (pName.includes("spo2") || pName.includes("oxygen"))) return true;
-          if (vital.id === "temp" && (pName.includes("temp") || pName.includes("temperature"))) return true;
+      // 1. Process BP: if both systolic and diastolic are in params, combine them
+      let incomingList = [...params];
+      const sysIndex = incomingList.findIndex(
+        (p) => p.parameter_id === "blood_pressure_systolic" || p.name.toLowerCase().includes("systolic")
+      );
+      const diaIndex = incomingList.findIndex(
+        (p) => p.parameter_id === "blood_pressure_diastolic" || p.name.toLowerCase().includes("diastolic")
+      );
+
+      if (sysIndex >= 0 && diaIndex >= 0) {
+        const sys = incomingList[sysIndex];
+        const dia = incomingList[diaIndex];
+        const isHigh = sys.status === "high" || dia.status === "high";
+        const isLow = sys.status === "low" || dia.status === "low";
+        const combinedStatus: "normal" | "high" | "low" = isHigh ? "high" : isLow ? "low" : "normal";
+        const statusLabel = isHigh ? "Above Range" : isLow ? "Below Range" : "Within Range";
+
+        const combinedBpItem: LabParameterItem = {
+          parameter_id: "blood_pressure",
+          name: "Blood Pressure",
+          value: `${sys.value}/${dia.value}` as any,
+          unit: "mmHg",
+          reference_low: 90,
+          reference_high: 120,
+          reference_range: `${sys.reference_range || "90-120"} / ${dia.reference_range || "60-80"} mmHg`,
+          difference_from_range: isHigh ? "Elevated BP" : isLow ? "Low BP" : "Optimal",
+          status: combinedStatus,
+          status_label: statusLabel,
+          is_out_of_range: isHigh || isLow,
+          category: "Vital Signs",
+          confidence: sys.confidence || dia.confidence || "high",
+          description: "Combined systolic and diastolic arterial blood pressure.",
+        };
+
+        // Filter out systolic and diastolic, prepend combined
+        incomingList = incomingList.filter((_, idx) => idx !== sysIndex && idx !== diaIndex);
+        incomingList.unshift(combinedBpItem);
+      }
+
+      let updated = [...current];
+
+      for (const item of incomingList) {
+        const paramId = item.parameter_id === "blood_pressure" ? "bp" : item.parameter_id;
+        const paramName = item.name;
+        const validStatus: "normal" | "high" | "low" | "none" =
+          item.status === "high" ? "high" : item.status === "low" ? "low" : item.status === "normal" ? "normal" : "none";
+        const statusLabel =
+          item.status === "high"
+            ? "Above Range"
+            : item.status === "low"
+            ? "Below Range"
+            : item.status === "normal"
+            ? "Within Range"
+            : "Not Available";
+
+        // Match existing parameter by canonical ID or name
+        const existingIdx = updated.findIndex((v) => {
+          const vId = v.id.toLowerCase();
+          const vName = v.name.toLowerCase();
+          const pId = paramId.toLowerCase();
+          const pName = paramName.toLowerCase();
+
+          if (vId === pId || vName === pName) return true;
+          if ((vId === "bp" || vId === "blood_pressure") && (pId === "bp" || pId === "blood_pressure")) return true;
+          if (
+            (vId === "fasting_blood_glucose" || vId === "glucose") &&
+            (pId === "fasting_blood_glucose" || pId === "glucose")
+          )
+            return true;
           return false;
         });
 
-        if (match) {
-          const validStatus: "normal" | "high" | "low" | "none" =
-            match.status === "normal" || match.status === "high" || match.status === "low"
-              ? match.status
-              : "normal";
+        if (existingIdx >= 0) {
+          const existing = updated[existingIdx];
+          const currentTs = parseDateForComparison(existing.recordedDate);
+          const isCurrentNewer =
+            existing.value !== null &&
+            existing.value !== "--" &&
+            existing.value !== "--/--" &&
+            currentTs > reportTs &&
+            reportTs > 0;
 
-          return {
-            ...vital,
-            value: match.value,
-            unit: match.unit || vital.unit,
+          if (isCurrentNewer) {
+            // Card has a newer reading: Keep card value as-is, push this older report reading into history
+            const prevHist = existing.history || [];
+            const isDup = prevHist.some((h) => h.recordedDate === date && String(h.value) === String(item.value));
+            if (!isDup) {
+              updated[existingIdx] = {
+                ...existing,
+                history: [
+                  {
+                    value: item.value,
+                    unit: item.unit || existing.unit,
+                    recordedDate: date,
+                    source,
+                    status: validStatus,
+                    statusLabel,
+                    referenceRange: item.reference_range ?? undefined,
+                    differenceFromRange: item.difference_from_range ?? undefined,
+                  },
+                  ...prevHist,
+                ],
+              };
+            }
+          } else {
+            // Incoming report is newer or same date: update card value, archive previous card value to history
+            const prevHist = existing.history || [];
+            const hasExistingVal =
+              existing.value !== null &&
+              existing.value !== "--" &&
+              existing.value !== "--/--";
+
+            const isSameAsCurrent =
+              hasExistingVal &&
+              existing.recordedDate === date &&
+              String(existing.value) === String(item.value);
+
+            const newHist =
+              hasExistingVal && !isSameAsCurrent
+                ? [
+                    {
+                      value: existing.value,
+                      unit: existing.unit,
+                      recordedDate: existing.recordedDate || "Previous",
+                      source: existing.source || "Previous",
+                      status: existing.status,
+                      statusLabel: existing.statusLabel,
+                      referenceRange: existing.referenceRange ?? undefined,
+                      differenceFromRange: existing.differenceFromRange ?? undefined,
+                    },
+                    ...prevHist,
+                  ]
+                : prevHist;
+
+            updated[existingIdx] = {
+              ...existing,
+              id: paramId,
+              name: paramName || existing.name,
+              category: item.category || existing.category || "Laboratory Test",
+              value: item.value,
+              unit: item.unit || existing.unit,
+              recordedDate: date,
+              source,
+              status: validStatus,
+              statusLabel,
+              referenceRange: item.reference_range || existing.referenceRange || undefined,
+              differenceFromRange: item.difference_from_range ?? undefined,
+              confidence: item.confidence ?? undefined,
+              history: newHist,
+            };
+          }
+        } else {
+          // Completely new parameter from report: add as a brand-new card!
+          const newParam: DynamicHealthParameter = {
+            id: paramId,
+            name: paramName,
+            category: item.category || "Laboratory Test",
+            value: item.value,
+            unit: item.unit,
             recordedDate: date,
+            source,
             status: validStatus,
-            statusLabel: match.status.toUpperCase(),
+            statusLabel,
+            referenceRange: item.reference_range ?? undefined,
+            differenceFromRange: item.difference_from_range ?? undefined,
+            confidence: item.confidence ?? undefined,
+            history: [],
           };
+          updated.push(newParam);
         }
-        return vital;
-      });
+      }
 
       try {
-        localStorage.setItem("sehatsetu_vitals", JSON.stringify(updated));
+        localStorage.setItem("sehatsetu_dynamic_vitals", JSON.stringify(updated));
       } catch {}
       return updated;
     });

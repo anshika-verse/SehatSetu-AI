@@ -334,6 +334,7 @@ def test_intake_full_clinical_dimensions() -> None:
 
 def test_report_analysis_endpoint() -> None:
     sample_report = (
+        "Report Date: 2026-11-05\n"
         "DR. LAL PATHLABS CLINICAL REPORT\n"
         "PATIENT: Anonymous Sample\n"
         "Hemoglobin: 11.2 g/dL (Reference: 13.0 - 17.0)\n"
@@ -345,10 +346,126 @@ def test_report_analysis_endpoint() -> None:
     data = res.json()
     assert data["total_found"] == 3
     assert data["out_of_range_count"] == 2  # Hemoglobin low, Glucose high
+    assert data["report_date"] == "2026-11-05"
     assert "DISCLAIMER" in data["disclaimer"]
+    assert "Report Overview" in data["summary"]
 
     # Test consent requirement
     consent_err = client.post("/api/reports/parse-text", json={"text": sample_report, "consent": False})
     assert consent_err.status_code == 400
+
+
+def test_report_pdf_file_upload_and_extraction() -> None:
+    # Minimal valid PDF with embedded text layer
+    pdf_bytes = (
+        b"%PDF-1.4\n"
+        b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<</Font<</F1 5 0 R>>>>/Contents 4 0 R>>endobj\n"
+        b"4 0 obj<</Length 180>>stream\n"
+        b"BT /F1 12 Tf 50 700 Td (Report Date: 2026-11-04) Tj 0 -20 Td (Hemoglobin: 10.2 g/dL 12.0 - 17.5) Tj 0 -20 Td (Blood Pressure: 135/88 mmHg) Tj ET\n"
+        b"endstream\nendobj\n"
+        b"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n"
+        b"xref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n0000000052 00000 n \n0000000101 00000 n \n0000000216 00000 n \n0000000448 00000 n \n"
+        b"trailer<</Size 6/Root 1 0 R>>\nstartxref\n520\n%%EOF"
+    )
+
+    response = client.post(
+        "/api/reports/analyze",
+        files={"file": ("clinical_panel.pdf", pdf_bytes, "application/pdf")},
+        data={"language": "en", "consent": "true"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["filename"] == "clinical_panel.pdf"
+    assert body["total_found"] >= 3  # Hemoglobin, Systolic BP, Diastolic BP
+    assert body["report_date"] == "2026-11-04"
+
+    # Find hemoglobin item
+    hb_item = next((p for p in body["parameters"] if p["parameter_id"] == "hemoglobin"), None)
+    assert hb_item is not None
+    assert hb_item["value"] == 10.2
+    assert hb_item["status"] == "low"
+    assert hb_item["is_out_of_range"] is True
+    assert "below stated minimum" in hb_item["difference_from_range"]
+
+    # Verify file was safely stored and can be retrieved
+    assert body["file_url"] is not None
+    stored_res = client.get(body["file_url"])
+    assert stored_res.status_code == 200
+
+
+def test_report_critical_panic_values() -> None:
+    # Severe hypoglycemia, severe anemia, and critical hypertensive emergency
+    critical_text = (
+        "LAB EMERGENCY REPORT\n"
+        "Fasting Blood Glucose: 42.0 mg/dL (Reference: 70 - 99)\n"
+        "Hemoglobin: 6.2 g/dL (Reference: 12.0 - 17.5)\n"
+        "Blood Pressure: 195/125 mmHg\n"
+    )
+    res = client.post("/api/reports/parse-text", json={"text": critical_text, "language": "en", "consent": True})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["has_critical"] is True
+    assert data["critical_count"] >= 2
+    assert "CRITICAL" in data["summary"]
+
+
+def test_report_recalculate_after_patient_edit() -> None:
+    # Initial state with abnormal hemoglobin
+    initial_params = [
+        {
+            "parameter_id": "hemoglobin",
+            "name": "Hemoglobin (Hb)",
+            "category": "Complete Blood Count",
+            "value": 10.2,
+            "unit": "g/dL",
+            "reference_range": "12.0 - 17.5 g/dL",
+            "reference_low": 12.0,
+            "reference_high": 17.5,
+            "status": "low",
+            "status_label": "Below Stated Range",
+            "is_out_of_range": True,
+            "difference_from_range": "1.8 g/dL below stated minimum (12.0 g/dL)",
+            "is_critical": False,
+            "confidence": "high",
+            "description": "Protein in red blood cells.",
+        }
+    ]
+
+    # Patient corrects value from 10.2 to 13.5 (which is within normal range 12.0 - 17.5)
+    corrected_params = [dict(initial_params[0], value=13.5)]
+
+    recalc_res = client.post(
+        "/api/reports/recalculate",
+        json={"parameters": corrected_params, "language": "en", "report_date": "2026-11-04"},
+    )
+    assert recalc_res.status_code == 200
+    body = recalc_res.json()
+    assert body["total_found"] == 1
+    assert body["out_of_range_count"] == 0  # Now normal!
+    assert body["parameters"][0]["status"] == "normal"
+    assert body["parameters"][0]["is_out_of_range"] is False
+    assert "Within stated" in body["parameters"][0]["difference_from_range"]
+
+
+def test_report_missing_and_unclear_values() -> None:
+    # Unclear non-medical text
+    unclear_text = "Grocery list: milk, eggs, bread. Call electricity bill office tomorrow."
+    res = client.post("/api/reports/parse-text", json={"text": unclear_text, "language": "hinglish", "consent": True})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_found"] == 0
+    assert data["out_of_range_count"] == 0
+    assert data["parameters"] == []
+
+    # Non-physiological OCR noise (e.g. Hemoglobin 480 or glucose 0.001)
+    noise_text = "Hemoglobin: 480 g/dL\nFasting Blood Glucose: 0.01 mg/dL"
+    noise_res = client.post("/api/reports/parse-text", json={"text": noise_text, "language": "en", "consent": True})
+    assert noise_res.status_code == 200
+    noise_data = noise_res.json()
+    # Should not invent or accept non-physiological numbers
+    assert noise_data["total_found"] == 0
+
 
 

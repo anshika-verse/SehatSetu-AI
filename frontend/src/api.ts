@@ -300,14 +300,22 @@ export type LabParameterItem = {
   status: "normal" | "high" | "low" | string;
   status_label: string;
   is_out_of_range: boolean;
+  difference_from_range?: string | null;
+  is_critical?: boolean;
+  confidence?: "high" | "medium" | "low" | string;
   description: string;
+  doctor_question?: string | null;
 };
 
 export type ReportAnalysisResult = {
   filename?: string | null;
   file_type?: string | null;
+  file_url?: string | null;
+  report_date?: string | null;
   total_found: number;
   out_of_range_count: number;
+  critical_count?: number;
+  has_critical?: boolean;
   parameters: LabParameterItem[];
   summary: string;
   disclaimer: string;
@@ -330,7 +338,6 @@ export async function analyzeReportFile(
   });
   if (!response.ok) await fail(response);
   const data = (await response.json()) as ReportAnalysisResult;
-  data.upload_date = new Date().toISOString();
   return data;
 }
 
@@ -343,6 +350,18 @@ export function parseReportText(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, language, consent }),
+  });
+}
+
+export function recalculateReport(
+  parameters: LabParameterItem[],
+  language: string = "hinglish",
+  reportDate?: string | null,
+): Promise<ReportAnalysisResult> {
+  return json<ReportAnalysisResult>("/api/reports/recalculate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parameters, language, report_date: reportDate }),
   });
 }
 

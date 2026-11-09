@@ -362,7 +362,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 }
 
 /* Status Badges */
-.badge {
+.badge,
+.status-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -373,25 +374,30 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   text-transform: uppercase;
 }
 
-.badge-normal {
-  background: var(--success-light);
-  color: var(--success);
-  border: 1px solid var(--success-border);
+.badge-normal,
+.status-badge.normal {
+  background: var(--success-light, #dcfce7);
+  color: var(--success, #16a34a);
+  border: 1px solid var(--success-border, #bbf7d0);
 }
 
-.badge-high, .badge-warning {
-  background: var(--danger-light);
-  color: var(--danger);
-  border: 1px solid var(--danger-border);
+.badge-high,
+.badge-warning,
+.status-badge.high {
+  background: var(--danger-light, #fee2e2);
+  color: var(--danger, #dc2626);
+  border: 1px solid var(--danger-border, #fecaca);
 }
 
-.badge-low {
-  background: var(--warning-light);
-  color: var(--warning);
-  border: 1px solid var(--warning-border);
+.badge-low,
+.status-badge.low {
+  background: var(--warning-light, #fef3c7);
+  color: #b45309;
+  border: 1px solid var(--warning-border, #fde68a);
 }
 
-.badge-none {
+.badge-none,
+.status-badge.none {
   background: #f1f5f9;
   color: #64748b;
   border: 1px solid #e2e8f0;

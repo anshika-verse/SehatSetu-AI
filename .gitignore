@@ -13,6 +13,7 @@ frontend/.env
 *.db
 *.wav
 uploads/
+backend/uploads/
 
 # Frontend
 node_modules/
