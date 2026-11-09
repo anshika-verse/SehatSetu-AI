@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   askKnowledge,
   detectLanguage,
@@ -10,10 +10,20 @@ import {
   lookupMedicine,
   speak,
   transcribe,
+  type LabParameterItem,
 } from "./api";
 import { AssistantAvatar, VoiceWaveform, type AssistantGender } from "./AssistantAvatar";
 import { AssistantSelectorModal } from "./AssistantSelectorModal";
 import { HealthcareNearMe } from "./HealthcareNearMe";
+import { Sidebar, type NavScreen } from "./Sidebar";
+import { TopBar } from "./TopBar";
+import { HealthOverviewCards, type VitalIndicator } from "./HealthOverviewCards";
+import { MedicalReportUpload } from "./MedicalReportUpload";
+import { MedicalHistorySection } from "./MedicalHistorySection";
+import { UpcomingAppointmentsCard } from "./UpcomingAppointmentsCard";
+import { AIAssistantPanel } from "./AIAssistantPanel";
+import { FindDoctorsView } from "./FindDoctorsView";
+import { HelpView } from "./HelpView";
 import { WavRecorder } from "./recorder";
 import {
   emptyState,
@@ -23,10 +33,80 @@ import {
   type Language,
   type SummaryField,
 } from "./types";
+import { AlertCircle, Calendar, ArrowRight, ShieldCheck } from "lucide-react";
 
-type Screen = "home" | "speak" | "nearby" | "summary" | "info" | "resources" | "settings";
+export type Screen = NavScreen;
 
 const recorder = new WavRecorder();
+
+const defaultInitialVitals: VitalIndicator[] = [
+  {
+    id: "bp",
+    name: "Blood Pressure",
+    value: null,
+    unit: "mmHg",
+    recordedDate: null,
+    status: "none",
+    statusLabel: "Not recorded",
+    category: "Cardiovascular",
+    idealRange: "90/60 - 120/80 mmHg",
+  },
+  {
+    id: "glucose",
+    name: "Blood Glucose (Fasting)",
+    value: null,
+    unit: "mg/dL",
+    recordedDate: null,
+    status: "none",
+    statusLabel: "Not recorded",
+    category: "Metabolic",
+    idealRange: "70 - 99 mg/dL",
+  },
+  {
+    id: "heart_rate",
+    name: "Heart Rate",
+    value: null,
+    unit: "bpm",
+    recordedDate: null,
+    status: "none",
+    statusLabel: "Not recorded",
+    category: "Cardiovascular",
+    idealRange: "60 - 100 bpm",
+  },
+  {
+    id: "hemoglobin",
+    name: "Hemoglobin",
+    value: null,
+    unit: "g/dL",
+    recordedDate: null,
+    status: "none",
+    statusLabel: "Not recorded",
+    category: "Hematology",
+    idealRange: "12.0 - 17.5 g/dL",
+  },
+  {
+    id: "spo2",
+    name: "SpO2 (Pulse Oximetry)",
+    value: null,
+    unit: "%",
+    recordedDate: null,
+    status: "none",
+    statusLabel: "Not recorded",
+    category: "Respiratory",
+    idealRange: "95 - 100 %",
+  },
+  {
+    id: "temp",
+    name: "Body Temperature",
+    value: null,
+    unit: "°F",
+    recordedDate: null,
+    status: "none",
+    statusLabel: "Not recorded",
+    category: "General",
+    idealRange: "97.8 - 99.1 °F",
+  },
+];
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
@@ -40,7 +120,7 @@ export default function App() {
   const [elderly, setElderly] = useState(false);
   const [speechMode, setSpeechMode] = useState<"live" | "demo" | "unknown">("unknown");
 
-  // Personalized Assistant State
+  // Personalized Assistant Persona State
   const [assistantGender, setAssistantGender] = useState<AssistantGender>(() => {
     try {
       const saved = localStorage.getItem("sehatsetu_assistant_persona");
@@ -55,13 +135,31 @@ export default function App() {
       return false;
     }
   });
-  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
 
-  const [consent, setConsent] = useState(false);
+  // Vitals State (persistent in localStorage)
+  const [vitals, setVitals] = useState<VitalIndicator[]>(() => {
+    try {
+      const saved = localStorage.getItem("sehatsetu_vitals");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return defaultInitialVitals;
+  });
+
+  // Conversation & Speech State
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [consent, setConsent] = useState(true);
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [draft, setDraft] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
+    {
+      role: "assistant",
+      text:
+        assistantGender === "male"
+          ? "Namaste! Main Dr. Aarav hoon. Aaj main aapki sehat ke baare mein kya madad kar sakta hoon? Aap bolkar ya likhkar bata sakte hain."
+          : "Namaste! Main Dr. Priya hoon. Aaj main aapki sehat ke baare mein kya madad kar sakti hoon? Aap bolkar ya likhkar bata sakte hain.",
+    },
+  ]);
   const [state, setState] = useState<IntakeState>(emptyState("hinglish"));
   const [citations, setCitations] = useState<Citation[]>([]);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -136,20 +234,6 @@ export default function App() {
     };
   }, [audioUrl]);
 
-  const nav = useMemo(
-    () =>
-      [
-        ["home", "🏥 Dashboard"],
-        ["speak", "🎙️ AI Consultation"],
-        ["nearby", "📍 Healthcare Near Me"],
-        ["summary", "📋 Health Summary"],
-        ["resources", "💊 Medicines & Schemes"],
-        ["info", "🔍 Verified Q&A"],
-        ["settings", "⚙️ Comfort & Reminders"],
-      ] as const,
-    [],
-  );
-
   function changeLanguage(next: Language) {
     setLanguage(next);
     try {
@@ -165,6 +249,66 @@ export default function App() {
     try {
       localStorage.setItem("sehatsetu_assistant_persona", gender);
     } catch {}
+  }
+
+  function handleUpdateVital(id: string, val: string, date: string) {
+    setVitals((current) => {
+      const updated = current.map((v) => {
+        if (v.id === id) {
+          return {
+            ...v,
+            value: val,
+            recordedDate: date,
+            status: "normal" as const,
+            statusLabel: "LOGGED",
+          };
+        }
+        return v;
+      });
+      try {
+        localStorage.setItem("sehatsetu_vitals", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }
+
+  function handleSyncVitals(params: LabParameterItem[], date: string) {
+    setVitals((current) => {
+      const updated = current.map((vital) => {
+        const match = params.find((p) => {
+          const pName = p.name.toLowerCase();
+          if (vital.id === "bp" && (pName.includes("pressure") || pName.includes("bp"))) return true;
+          if (vital.id === "glucose" && (pName.includes("glucose") || pName.includes("sugar") || pName.includes("fasting"))) return true;
+          if (vital.id === "heart_rate" && (pName.includes("heart rate") || pName.includes("pulse"))) return true;
+          if (vital.id === "hemoglobin" && (pName.includes("hemoglobin") || pName.includes("hb"))) return true;
+          if (vital.id === "spo2" && (pName.includes("spo2") || pName.includes("oxygen"))) return true;
+          if (vital.id === "temp" && (pName.includes("temp") || pName.includes("temperature"))) return true;
+          return false;
+        });
+
+        if (match) {
+          const validStatus: "normal" | "high" | "low" | "none" =
+            match.status === "normal" || match.status === "high" || match.status === "low"
+              ? match.status
+              : "normal";
+
+          return {
+            ...vital,
+            value: match.value,
+            unit: match.unit || vital.unit,
+            recordedDate: date,
+            status: validStatus,
+            statusLabel: match.status.toUpperCase(),
+          };
+        }
+        return vital;
+      });
+
+      try {
+        localStorage.setItem("sehatsetu_vitals", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   }
 
   function stopAudio() {
@@ -231,7 +375,6 @@ export default function App() {
     setMessages((current) => [...current, { role: "user", text: message }]);
 
     let langToUse = language;
-    // Auto-detect language if enabled or on first message
     if (language === "auto") {
       try {
         const det = await detectLanguage(message);
@@ -286,7 +429,7 @@ export default function App() {
   async function toggleRecording() {
     setError(null);
     if (!consent) {
-      setError("Allow audio processing before recording. Audio is sent for transcription and is not stored.");
+      setError("Please grant consent for audio processing. Audio is never stored.");
       return;
     }
     if (recording) {
@@ -311,7 +454,7 @@ export default function App() {
       setRecording(true);
       setSeconds(0);
     } catch {
-      setError("Microphone permission is required, or this browser blocked recording. You can type instead.");
+      setError("Microphone permission was denied or is unavailable. You can type instead.");
     }
   }
 
@@ -331,8 +474,29 @@ export default function App() {
 
   const assistantName = assistantGender === "male" ? "Dr. Aarav" : "Dr. Priya";
 
+  function handleSearch(query: string) {
+    const q = query.toLowerCase().trim();
+    if (!q) return;
+    if (q.includes("doctor") || q.includes("cardiolog") || q.includes("specialist") || q.includes("opd")) {
+      setScreen("doctors");
+    } else if (q.includes("near") || q.includes("hospital") || q.includes("clinic") || q.includes("pharmacy") || q.includes("lab")) {
+      setScreen("nearby");
+    } else if (q.includes("report") || q.includes("test") || q.includes("blood") || q.includes("pdf")) {
+      setScreen("reports");
+    } else if (q.includes("appointment") || q.includes("visit") || q.includes("schedule")) {
+      setScreen("appointments");
+    } else if (q.includes("medicine") || q.includes("drug") || q.includes("scheme") || q.includes("pmjay")) {
+      setScreen("resources");
+    } else if (q.includes("help") || q.includes("112") || q.includes("emergency") || q.includes("ambulance")) {
+      setScreen("help");
+    } else {
+      setDraft(query);
+      setScreen("home");
+    }
+  }
+
   return (
-    <div className="app">
+    <div className="app-shell">
       {/* First-visit or on-demand Assistant Selector Modal */}
       {showPersonaModal && (
         <AssistantSelectorModal
@@ -343,490 +507,477 @@ export default function App() {
         />
       )}
 
-      {/* Top Header Bar */}
-      <header className="topbar">
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 12,
-              background: "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#fff",
-              fontSize: 22,
-              boxShadow: "0 4px 12px rgba(13, 148, 136, 0.35)",
-            }}
-          >
-            🩺
-          </div>
-          <div>
-            <p className="eyebrow">Multilingual Healthcare Navigation</p>
-            <h1 style={{ margin: 0, fontSize: "1.65rem", fontWeight: 800 }}>SehatSetu AI</h1>
-            <p className="tagline">Your Voice. Your Language. Better Healthcare Access.</p>
-          </div>
-        </div>
+      {/* Left Sidebar Navigation */}
+      <Sidebar
+        currentScreen={screen}
+        onNavigate={(screenId) => setScreen(screenId)}
+        assistantGender={assistantGender}
+        onSwitchAssistant={() => setShowPersonaModal(true)}
+      />
 
-        <div className="top-controls" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {/* Active Assistant Pill & Switcher */}
-          <div
-            onClick={() => setShowPersonaModal(true)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "5px 12px",
-              background: "#f0fdfa",
-              border: "1.5px solid #99f6e4",
-              borderRadius: 20,
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-            }}
-            title="Click to switch between Dr. Aarav and Dr. Priya"
-          >
-            <AssistantAvatar gender={assistantGender} size="sm" isSpeaking={isSpeaking} />
-            <div style={{ textAlign: "left" }}>
-              <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#0f766e" }}>{assistantName}</div>
-              <div style={{ fontSize: "0.7rem", color: "#64748b" }}>Switch Assistant ▾</div>
-            </div>
-          </div>
+      {/* Main App Content Wrapper */}
+      <div className="main-wrapper">
+        {/* Top Header Bar */}
+        <TopBar
+          language={language}
+          onLanguageChange={changeLanguage}
+          speechMode={speechMode}
+          assistantGender={assistantGender}
+          onSwitchAssistant={() => setShowPersonaModal(true)}
+          onSearch={handleSearch}
+          unreadCount={state.emergency ? 2 : 1}
+        />
 
-          <label style={{ margin: 0 }}>
-            <span style={{ fontSize: "0.75rem", textTransform: "uppercase", color: "#64748b" }}>Language</span>
-            <select
-              value={language}
-              onChange={(event) => changeLanguage(event.target.value as Language)}
-              style={{ padding: "6px 10px", minHeight: 38 }}
-            >
-              <option value="auto">✨ Auto-Detect</option>
-              <option value="hinglish">Hinglish (हिंग्लिश)</option>
-              <option value="hi">हिन्दी (Hindi)</option>
-              <option value="en">English (India)</option>
-              <option value="ta">தமிழ் (Tamil)</option>
-              <option value="te">తెలుగు (Telugu)</option>
-              <option value="bn">বাংলা (Bengali)</option>
-              <option value="mr">मराठी (Marathi)</option>
-              <option value="gu">ગુજરાતી (Gujarati)</option>
-              <option value="kn">ಕನ್ನಡ (Kannada)</option>
-            </select>
-          </label>
-
-          <span className={`badge ${speechMode === "live" ? "live" : "demo"}`}>
-            {speechMode === "live" ? "⚡ Gnani Live" : speechMode === "demo" ? "DEMO Mode" : "Checking"}
-          </span>
-        </div>
-      </header>
-
-      {/* Emergency Red-Flag Banner */}
-      {state.emergency && (
-        <section className="emergency" role="alert">
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 22 }}>🚨</span>
-            <strong style={{ fontSize: "1.1rem" }}>Urgent Medical Attention Needed</strong>
-          </div>
-          <p style={{ margin: 0 }}>
-            A predefined warning sign was detected in what you reported. Call <strong>112</strong> or visit the nearest
-            emergency hospital now. This app does not dispatch emergency services.
-          </p>
-        </section>
-      )}
-
-      {/* Main Layout Navigation & Content */}
-      <div className="layout">
-        <nav className="nav" aria-label="Main Sections">
-          {nav.map(([id, label]) => (
-            <button
-              key={id}
-              className={screen === id ? "active" : ""}
-              onClick={() => setScreen(id)}
-              type="button"
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
-
-        <main>
+        {/* Screen Routing */}
+        <div style={{ flex: 1, paddingBottom: "40px" }}>
+          {/* SCREEN: HOME (PRIMARY DASHBOARD MATCHING REFERENCE SCREENSHOT) */}
           {screen === "home" && (
-            <Home
-              onOpen={setScreen}
-              speechMode={speechMode}
-              assistantGender={assistantGender}
-              onSwitchAssistant={() => setShowPersonaModal(true)}
-            />
+            <div className="dashboard-grid">
+              {/* Centre Column: Overview, Reports, Medical History */}
+              <div className="dashboard-center">
+                {/* Emergency Flag Banner */}
+                {state.emergency && (
+                  <div
+                    style={{
+                      background: "#FEF2F2",
+                      border: "1.5px solid #FCA5A5",
+                      borderRadius: "16px",
+                      padding: "16px 20px",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "14px",
+                      boxShadow: "0 4px 12px rgba(220, 38, 38, 0.1)",
+                    }}
+                    role="alert"
+                  >
+                    <AlertCircle size={26} color="#DC2626" style={{ flexShrink: 0, marginTop: "2px" }} />
+                    <div style={{ flex: 1 }}>
+                      <strong style={{ fontSize: "1.05rem", color: "#991B1B", display: "block", marginBottom: "4px" }}>
+                        🚨 Urgent Medical Attention Warning
+                      </strong>
+                      <p style={{ margin: 0, fontSize: "0.88rem", color: "#B91C1C", lineHeight: 1.45 }}>
+                        A predefined clinical warning sign was identified in what was reported. Please call <strong>112</strong> immediately or visit the nearest emergency trauma center.
+                      </p>
+                      <div style={{ marginTop: "10px", display: "flex", gap: "10px" }}>
+                        <a
+                          href="tel:112"
+                          style={{
+                            background: "#DC2626",
+                            color: "#ffffff",
+                            padding: "6px 14px",
+                            borderRadius: "8px",
+                            fontSize: "0.85rem",
+                            fontWeight: 700,
+                            textDecoration: "none",
+                          }}
+                        >
+                          Call 112 Now
+                        </a>
+                        <button
+                          onClick={() => setScreen("nearby")}
+                          style={{
+                            background: "#ffffff",
+                            border: "1px solid #FCA5A5",
+                            color: "#991B1B",
+                            padding: "6px 14px",
+                            borderRadius: "8px",
+                            fontSize: "0.85rem",
+                            fontWeight: 600,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Find Nearest Emergency Room
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Personalized Greeting Card */}
+                <div
+                  style={{
+                    background: "linear-gradient(135deg, #EBF5F3 0%, #FFFFFF 100%)",
+                    borderRadius: "18px",
+                    padding: "22px 26px",
+                    border: "1.5px solid #B3E2DA",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: "16px",
+                    boxShadow: "0 2px 8px rgba(8, 126, 117, 0.05)",
+                  }}
+                >
+                  <div>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#087E75", color: "#ffffff", padding: "3px 10px", borderRadius: "12px", fontSize: "0.74rem", fontWeight: 700, textTransform: "uppercase", marginBottom: "8px" }}>
+                      <span>✨</span> AI Health Companion
+                    </div>
+                    <h2 style={{ margin: 0, fontSize: "1.45rem", fontWeight: 800, color: "#111827" }}>
+                      Welcome to your Health Command Center
+                    </h2>
+                    <p style={{ margin: "4px 0 0 0", fontSize: "0.9rem", color: "#4B5563" }}>
+                      {assistantName} is here to assist with symptom tracking, verified doctor OPD discovery, and report understanding.
+                    </p>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <button
+                      onClick={() => setScreen("speak")}
+                      style={{
+                        background: "#087E75",
+                        color: "#ffffff",
+                        padding: "10px 18px",
+                        borderRadius: "12px",
+                        fontSize: "0.88rem",
+                        fontWeight: 700,
+                        border: "none",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                      }}
+                    >
+                      <span>🎙️</span> Voice Consultation
+                    </button>
+                    <button
+                      onClick={() => setScreen("nearby")}
+                      style={{
+                        background: "#ffffff",
+                        border: "1.5px solid #087E75",
+                        color: "#087E75",
+                        padding: "10px 18px",
+                        borderRadius: "12px",
+                        fontSize: "0.88rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                      }}
+                    >
+                      <span>📍</span> Nearby Care
+                    </button>
+                  </div>
+                </div>
+
+                {/* 1. Health Overview Cards */}
+                <HealthOverviewCards
+                  vitals={vitals}
+                  onUpdateVital={handleUpdateVital}
+                  onOpenReportUpload={() => setScreen("reports")}
+                />
+
+                {/* 2. Medical Report Upload (Center Section) */}
+                <MedicalReportUpload
+                  language={language}
+                  onSyncVitals={handleSyncVitals}
+                />
+
+                {/* 3. Medical History (Previous reports, conditions, allergies, consultations) */}
+                <MedicalHistorySection
+                  onOpenReportUpload={() => setScreen("reports")}
+                  onNavigateAppointments={() => setScreen("appointments")}
+                />
+              </div>
+
+              {/* Right Column: Upcoming Appointments + Dedicated AI Healthcare Assistant */}
+              <div className="dashboard-right">
+                {/* Right Top: Upcoming Appointments Card */}
+                <UpcomingAppointmentsCard
+                  onFindDoctors={() => setScreen("doctors")}
+                  onNavigateToNearMe={() => setScreen("nearby")}
+                />
+
+                {/* Right Bottom: Dedicated AI Healthcare Assistant Panel */}
+                <AIAssistantPanel
+                  assistantGender={assistantGender}
+                  isSpeaking={isSpeaking}
+                  recording={recording}
+                  seconds={seconds}
+                  busy={busy}
+                  draft={draft}
+                  setDraft={setDraft}
+                  messages={messages}
+                  state={state}
+                  language={language}
+                  error={error}
+                  audioUrl={audioUrl}
+                  consent={consent}
+                  setConsent={setConsent}
+                  onMic={() => void toggleRecording()}
+                  onSend={(txt) => void sendText(txt)}
+                  onReplay={() => lastSpoken && void play(lastSpoken).catch((err: unknown) => setError(String(err)))}
+                  onInterrupt={stopAudio}
+                  onSwitchAssistant={() => setShowPersonaModal(true)}
+                  onClearChat={() => {
+                    setMessages([
+                      {
+                        role: "assistant",
+                        text:
+                          assistantGender === "male"
+                            ? "Conversation history refreshed. Main Dr. Aarav hoon, batayiye aaj aapki kya seva kar sakta hoon?"
+                            : "Conversation history refreshed. Main Dr. Priya hoon, batayiye aaj aapki kya seva kar sakti hoon?",
+                      },
+                    ]);
+                    setState(emptyState(language === "auto" ? "hinglish" : language));
+                  }}
+                />
+              </div>
+            </div>
           )}
 
-          {screen === "speak" && (
-            <Speak
-              assistantGender={assistantGender}
-              isSpeaking={isSpeaking}
-              consent={consent}
-              setConsent={setConsent}
-              recording={recording}
-              seconds={seconds}
-              busy={busy}
-              draft={draft}
-              setDraft={setDraft}
-              messages={messages}
-              state={state}
-              language={language}
-              error={error}
-              audioUrl={audioUrl}
-              audioMode={audioMode}
-              onMic={() => void toggleRecording()}
-              onSend={() => void sendText(draft)}
-              onReplay={() => lastSpoken && void play(lastSpoken).catch((err: unknown) => setError(String(err)))}
-              onInterrupt={stopAudio}
-              onRetry={handleRetryRecording}
-              onSwitchAssistant={() => setShowPersonaModal(true)}
-            />
+          {/* SCREEN: APPOINTMENTS */}
+          {screen === "appointments" && (
+            <div style={{ maxWidth: "1200px", margin: "24px auto", padding: "0 24px", display: "flex", flexDirection: "column", gap: "24px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+                <div>
+                  <h2 style={{ fontSize: "1.6rem", fontWeight: 800, color: "#111827", margin: 0 }}>
+                    Your Appointments & OPD Visits
+                  </h2>
+                  <p style={{ margin: "4px 0 0 0", color: "#6B7280", fontSize: "0.92rem" }}>
+                    Track verified hospital visits, OPD registrations, and telehealth consultations.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setScreen("doctors")}
+                  style={{
+                    background: "#087E75",
+                    color: "#ffffff",
+                    border: "none",
+                    padding: "10px 18px",
+                    borderRadius: "12px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <Calendar size={18} />
+                  Book with Verified Doctor
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)", gap: "24px" }}>
+                <UpcomingAppointmentsCard
+                  onFindDoctors={() => setScreen("doctors")}
+                  onNavigateToNearMe={() => setScreen("nearby")}
+                />
+
+                {/* State Health & Central OPD Portals Card */}
+                <div style={{ background: "#ffffff", borderRadius: "18px", padding: "24px", border: "1px solid #E5E7EB", boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+                    <ShieldCheck size={22} color="#087E75" />
+                    <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700, color: "#111827" }}>
+                      Official Government Health Portals
+                    </h3>
+                  </div>
+                  <p style={{ fontSize: "0.85rem", color: "#6B7280", lineHeight: 1.45, marginBottom: "16px" }}>
+                    Book direct OPD appointments at AIIMS, Central Govt Hospitals, and state medical colleges without middlemen.
+                  </p>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                    <a
+                      href="https://ors.gov.in"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        padding: "14px",
+                        background: "#F9FAFB",
+                        borderRadius: "12px",
+                        border: "1px solid #E5E7EB",
+                        textDecoration: "none",
+                        color: "inherit",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div>
+                        <strong style={{ color: "#087E75", fontSize: "0.95rem" }}>ORS (Online Registration System)</strong>
+                        <div style={{ fontSize: "0.8rem", color: "#6B7280", marginTop: "2px" }}>
+                          AIIMS, Safdarjung, RML, and 300+ Government Hospitals nationwide.
+                        </div>
+                      </div>
+                      <ArrowRight size={18} color="#087E75" />
+                    </a>
+
+                    <a
+                      href="https://esanjeevani.mohfw.gov.in"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        padding: "14px",
+                        background: "#F9FAFB",
+                        borderRadius: "12px",
+                        border: "1px solid #E5E7EB",
+                        textDecoration: "none",
+                        color: "inherit",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div>
+                        <strong style={{ color: "#087E75", fontSize: "0.95rem" }}>eSanjeevani Teleconsultation</strong>
+                        <div style={{ fontSize: "0.8rem", color: "#6B7280", marginTop: "2px" }}>
+                          Free doctor-to-patient National Telemedicine Service of India.
+                        </div>
+                      </div>
+                      <ArrowRight size={18} color="#087E75" />
+                    </a>
+
+                    <a
+                      href="https://abha.abdm.gov.in"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        padding: "14px",
+                        background: "#F9FAFB",
+                        borderRadius: "12px",
+                        border: "1px solid #E5E7EB",
+                        textDecoration: "none",
+                        color: "inherit",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div>
+                        <strong style={{ color: "#087E75", fontSize: "0.95rem" }}>ABHA (Ayushman Bharat Health Account)</strong>
+                        <div style={{ fontSize: "0.8rem", color: "#6B7280", marginTop: "2px" }}>
+                          Link your 14-digit digital health ID for seamless doctor records.
+                        </div>
+                      </div>
+                      <ArrowRight size={18} color="#087E75" />
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
+          {/* SCREEN: FIND DOCTORS */}
+          {screen === "doctors" && (
+            <div style={{ maxWidth: "1300px", margin: "24px auto", padding: "0 24px" }}>
+              <FindDoctorsView
+                onScheduleAppointment={() => {
+                  setScreen("appointments");
+                }}
+                onNavigateToNearMe={() => setScreen("nearby")}
+              />
+            </div>
+          )}
+
+          {/* SCREEN: HEALTHCARE NEAR ME (LIVE GPS DISCOVERY) */}
           {screen === "nearby" && (
-            <HealthcareNearMe
-              currentSymptoms={state.main_concern || ""}
-              language={language}
-              onBookDemo={() => {
-                setScreen("resources");
-              }}
-            />
+            <div style={{ maxWidth: "1300px", margin: "24px auto", padding: "0 24px" }}>
+              <HealthcareNearMe
+                currentSymptoms={state.main_concern || ""}
+                language={language}
+                onBookDemo={() => {
+                  setScreen("appointments");
+                }}
+              />
+            </div>
           )}
 
-          {screen === "summary" && <Summary state={state} citations={citations} />}
+          {/* SCREEN: MEDICAL REPORTS */}
+          {screen === "reports" && (
+            <div style={{ maxWidth: "1200px", margin: "24px auto", padding: "0 24px" }}>
+              <MedicalReportUpload
+                language={language}
+                onSyncVitals={handleSyncVitals}
+              />
+            </div>
+          )}
 
-          {screen === "info" && <Information language={language} />}
+          {/* SCREEN: AI ASSISTANT / CONSULTATION (FULL VIEW) */}
+          {screen === "speak" && (
+            <div style={{ maxWidth: "1100px", margin: "24px auto", padding: "0 24px" }}>
+              <Speak
+                assistantGender={assistantGender}
+                isSpeaking={isSpeaking}
+                consent={consent}
+                setConsent={setConsent}
+                recording={recording}
+                seconds={seconds}
+                busy={busy}
+                draft={draft}
+                setDraft={setDraft}
+                messages={messages}
+                state={state}
+                language={language}
+                error={error}
+                audioUrl={audioUrl}
+                audioMode={audioMode}
+                onMic={() => void toggleRecording()}
+                onSend={() => void sendText(draft)}
+                onReplay={() => lastSpoken && void play(lastSpoken).catch((err: unknown) => setError(String(err)))}
+                onInterrupt={stopAudio}
+                onRetry={handleRetryRecording}
+                onSwitchAssistant={() => setShowPersonaModal(true)}
+              />
+            </div>
+          )}
 
-          {screen === "resources" && <Resources language={language} />}
+          {/* SCREEN: HEALTH HISTORY */}
+          {screen === "history" && (
+            <div style={{ maxWidth: "1200px", margin: "24px auto", padding: "0 24px" }}>
+              <MedicalHistorySection
+                onOpenReportUpload={() => setScreen("reports")}
+                onNavigateAppointments={() => setScreen("appointments")}
+              />
+            </div>
+          )}
 
+          {/* SCREEN: CONSULTATION SUMMARY */}
+          {screen === "summary" && (
+            <div style={{ maxWidth: "1000px", margin: "24px auto", padding: "0 24px" }}>
+              <Summary state={state} citations={citations} />
+            </div>
+          )}
+
+          {/* SCREEN: MEDICINES & SCHEMES (openFDA & PM-JAY) */}
+          {screen === "resources" && (
+            <div style={{ maxWidth: "1100px", margin: "24px auto", padding: "0 24px" }}>
+              <Resources language={language} />
+            </div>
+          )}
+
+          {/* SCREEN: VERIFIED Q&A */}
+          {screen === "info" && (
+            <div style={{ maxWidth: "1000px", margin: "24px auto", padding: "0 24px" }}>
+              <Information language={language} />
+            </div>
+          )}
+
+          {/* SCREEN: SETTINGS */}
           {screen === "settings" && (
-            <Settings
-              elderly={elderly}
-              setElderly={setElderly}
-              assistantGender={assistantGender}
-              onSwitchAssistant={() => setShowPersonaModal(true)}
-            />
+            <div style={{ maxWidth: "1000px", margin: "24px auto", padding: "0 24px" }}>
+              <Settings
+                elderly={elderly}
+                setElderly={setElderly}
+                assistantGender={assistantGender}
+                onSwitchAssistant={() => setShowPersonaModal(true)}
+              />
+            </div>
           )}
-        </main>
+
+          {/* SCREEN: HELP & HELPLINES */}
+          {screen === "help" && (
+            <div style={{ maxWidth: "1200px", margin: "24px auto", padding: "0 24px" }}>
+              <HelpView onNavigate={(navId) => setScreen(navId as Screen)} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
 /**
- * Dashboard UI (Follows Reference Image 2: Clean Healthcare White & Teal Theme)
- */
-function Home({
-  onOpen,
-  speechMode,
-  assistantGender,
-  onSwitchAssistant,
-}: {
-  onOpen: (screen: Screen) => void;
-  speechMode: string;
-  assistantGender: AssistantGender;
-  onSwitchAssistant: () => void;
-}) {
-  const assistantName = assistantGender === "male" ? "Dr. Aarav" : "Dr. Priya";
-
-  return (
-    <section className="dashboard-view">
-      {/* Hero Card */}
-      <div
-        className="hero-card"
-        style={{
-          background: "linear-gradient(135deg, #f0fdfa 0%, #ffffff 100%)",
-          borderRadius: 22,
-          padding: "28px",
-          marginBottom: 24,
-          border: "1px solid #ccfbf1",
-          boxShadow: "0 6px 20px -4px rgba(13, 148, 136, 0.08)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 20,
-        }}
-      >
-        <div style={{ maxWidth: 600 }}>
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              background: "#0d9488",
-              color: "#ffffff",
-              padding: "4px 10px",
-              borderRadius: 20,
-              fontSize: "0.78rem",
-              fontWeight: 700,
-              textTransform: "uppercase",
-              marginBottom: 10,
-            }}
-          >
-            <span>✨</span> Intelligent Healthcare Navigation {speechMode === "live" ? "• Gnani Voice Live" : ""}
-          </div>
-          <h2 style={{ fontSize: "1.85rem", color: "#0f172a", marginBottom: 8, fontWeight: 800 }}>
-            {assistantName} is ready to guide you.
-          </h2>
-          <p style={{ color: "#475569", fontSize: "1rem", lineHeight: 1.5, marginBottom: 20 }}>
-            Speak in Hindi or Hinglish to describe your symptoms, discover nearby hospitals, check medicine details,
-            and prepare a doctor-ready consultation summary.
-          </p>
-
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className="primary"
-              onClick={() => onOpen("speak")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "12px 24px",
-                borderRadius: 14,
-                fontSize: "0.95rem",
-              }}
-            >
-              <span>🎙️</span> Start Voice Consultation
-            </button>
-            <button
-              type="button"
-              onClick={() => onOpen("nearby")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "12px 20px",
-                borderRadius: 14,
-                fontSize: "0.95rem",
-                border: "1.5px solid #0d9488",
-                color: "#0f766e",
-              }}
-            >
-              <span>📍</span> Healthcare Near Me
-            </button>
-          </div>
-        </div>
-
-        {/* 3D Character Showcase Card */}
-        <div
-          onClick={onSwitchAssistant}
-          style={{
-            background: "#ffffff",
-            padding: "20px 24px",
-            borderRadius: 20,
-            border: "1.5px solid #99f6e4",
-            boxShadow: "0 4px 16px rgba(13, 148, 136, 0.12)",
-            textAlign: "center",
-            cursor: "pointer",
-          }}
-          title="Click to switch assistant"
-        >
-          <AssistantAvatar gender={assistantGender} size="lg" />
-          <div style={{ marginTop: 10, fontSize: "0.82rem", color: "#0d9488", fontWeight: 700 }}>
-            Switch Assistant ▾
-          </div>
-        </div>
-      </div>
-
-      {/* 112 Emergency Card */}
-      <div
-        style={{
-          background: "#fff1f2",
-          border: "1.5px solid #fecdd3",
-          borderRadius: 16,
-          padding: "14px 20px",
-          marginBottom: 24,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 12,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 24 }}>🚨</span>
-          <div>
-            <strong style={{ color: "#9f1239", fontSize: "0.95rem" }}>
-              Medical Emergency? Call 112 immediately.
-            </strong>
-            <p style={{ margin: 0, fontSize: "0.82rem", color: "#be123c" }}>
-              SehatSetu AI is for preparation and navigation only. It does not provide urgent clinical intervention.
-            </p>
-          </div>
-        </div>
-        <a
-          href="tel:112"
-          style={{
-            background: "#e11d48",
-            color: "#ffffff",
-            padding: "8px 18px",
-            borderRadius: 12,
-            textDecoration: "none",
-            fontWeight: 700,
-            fontSize: "0.85rem",
-          }}
-        >
-          Call 112 Now
-        </a>
-      </div>
-
-      {/* 4 Interactive Healthcare Service Cards */}
-      <h3 style={{ fontSize: "1.25rem", color: "#0f172a", marginBottom: 14 }}>Core Healthcare Services</h3>
-      <div className="cards" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 28 }}>
-        {/* Card 1 */}
-        <button
-          type="button"
-          onClick={() => onOpen("speak")}
-          style={{
-            background: "#ffffff",
-            border: "1.5px solid #e2e8f0",
-            borderRadius: 18,
-            padding: "20px",
-            textAlign: "left",
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-          }}
-        >
-          <div style={{ width: 42, height: 42, borderRadius: 12, background: "#f0fdfa", color: "#0d9488", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>
-            🎙️
-          </div>
-          <strong style={{ fontSize: "1.05rem", color: "#0f172a" }}>AI Voice Intake & Consultation</strong>
-          <span style={{ fontSize: "0.85rem", color: "#64748b", lineHeight: 1.4 }}>
-            Talk naturally with {assistantName} in Hindi or Hinglish. Structured symptom collection with Gnani Prisma STT & Timbre TTS.
-          </span>
-          <span style={{ fontSize: "0.82rem", color: "#0d9488", fontWeight: 700, marginTop: "auto" }}>
-            Begin Consultation →
-          </span>
-        </button>
-
-        {/* Card 2 */}
-        <button
-          type="button"
-          onClick={() => onOpen("nearby")}
-          style={{
-            background: "#ffffff",
-            border: "1.5px solid #e2e8f0",
-            borderRadius: 18,
-            padding: "20px",
-            textAlign: "left",
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-          }}
-        >
-          <div style={{ width: 42, height: 42, borderRadius: 12, background: "#f0fdfa", color: "#0d9488", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>
-            📍
-          </div>
-          <strong style={{ fontSize: "1.05rem", color: "#0f172a" }}>Healthcare Near Me</strong>
-          <span style={{ fontSize: "0.85rem", color: "#64748b", lineHeight: 1.4 }}>
-            GPS-based discovery of 24x7 hospitals, clinics, diagnostic labs, and medical stores with real driving directions.
-          </span>
-          <span style={{ fontSize: "0.82rem", color: "#0d9488", fontWeight: 700, marginTop: "auto" }}>
-            Locate Nearby Care →
-          </span>
-        </button>
-
-        {/* Card 3 */}
-        <button
-          type="button"
-          onClick={() => onOpen("resources")}
-          style={{
-            background: "#ffffff",
-            border: "1.5px solid #e2e8f0",
-            borderRadius: 18,
-            padding: "20px",
-            textAlign: "left",
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-          }}
-        >
-          <div style={{ width: 42, height: 42, borderRadius: 12, background: "#f0fdfa", color: "#0d9488", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>
-            💊
-          </div>
-          <strong style={{ fontSize: "1.05rem", color: "#0f172a" }}>Verified Medicine Labels</strong>
-          <span style={{ fontSize: "0.85rem", color: "#64748b", lineHeight: 1.4 }}>
-            Search openFDA & NIH RxNorm regulatory drug labels for active ingredients, indications, and official warnings.
-          </span>
-          <span style={{ fontSize: "0.82rem", color: "#0d9488", fontWeight: 700, marginTop: "auto" }}>
-            Lookup Medicine Details →
-          </span>
-        </button>
-
-        {/* Card 4 */}
-        <button
-          type="button"
-          onClick={() => onOpen("summary")}
-          style={{
-            background: "#ffffff",
-            border: "1.5px solid #e2e8f0",
-            borderRadius: 18,
-            padding: "20px",
-            textAlign: "left",
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-          }}
-        >
-          <div style={{ width: 42, height: 42, borderRadius: 12, background: "#f0fdfa", color: "#0d9488", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>
-            📋
-          </div>
-          <strong style={{ fontSize: "1.05rem", color: "#0f172a" }}>Patient-Reported Summary</strong>
-          <span style={{ fontSize: "0.85rem", color: "#64748b", lineHeight: 1.4 }}>
-            Generate an organized health summary of what you reported to share with your qualified clinician or doctor.
-          </span>
-          <span style={{ fontSize: "0.82rem", color: "#0d9488", fontWeight: 700, marginTop: "auto" }}>
-            View Health Summary →
-          </span>
-        </button>
-      </div>
-
-      {/* Safety & Guardrail Badges Footer */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: 12,
-          padding: "16px 20px",
-          background: "#f8fafc",
-          borderRadius: 16,
-          border: "1px solid #e2e8f0",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 20 }}>🛡️</span>
-          <div style={{ fontSize: "0.8rem", color: "#475569" }}>
-            <strong>100% Non-Diagnostic</strong>
-            <div>Clinician-reviewed safety rules</div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 20 }}>🔒</span>
-          <div style={{ fontSize: "0.8rem", color: "#475569" }}>
-            <strong>Privacy Preserved</strong>
-            <div>No audio or health data stored in DB</div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 20 }}>🌐</span>
-          <div style={{ fontSize: "0.8rem", color: "#475569" }}>
-            <strong>Official Data Sources</strong>
-            <div>openFDA, WHO, RxNorm & Gov Schemes</div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/**
- * Premium Conversational View with Animated 3D Avatar, Voice Waveform & Chat
+ * Full-height Conversational Intake View with Animated Avatar, Voice Waveform & Chat
  */
 function Speak(props: {
   assistantGender: AssistantGender;

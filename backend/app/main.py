@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import conversation, health, language, places, resources, speech, websocket_conversation
+from app.api.routes import conversation, health, language, places, reports, resources, speech, websocket_conversation
 from app.config import settings
 from app.services.database import init_db
 
@@ -27,4 +27,5 @@ app.include_router(conversation.router, prefix="/api")
 app.include_router(resources.router, prefix="/api")
 app.include_router(places.router, prefix="/api")
 app.include_router(language.router, prefix="/api")
+app.include_router(reports.router, prefix="/api")
 app.include_router(websocket_conversation.router, prefix="/api")

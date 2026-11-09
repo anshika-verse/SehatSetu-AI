@@ -287,3 +287,62 @@ export function getNearbyPlaces(params: {
     body: JSON.stringify(params),
   });
 }
+
+export type LabParameterItem = {
+  parameter_id: string;
+  name: string;
+  category: string;
+  value: number;
+  unit: string;
+  reference_range: string;
+  reference_low: number;
+  reference_high: number;
+  status: "normal" | "high" | "low" | string;
+  status_label: string;
+  is_out_of_range: boolean;
+  description: string;
+};
+
+export type ReportAnalysisResult = {
+  filename?: string | null;
+  file_type?: string | null;
+  total_found: number;
+  out_of_range_count: number;
+  parameters: LabParameterItem[];
+  summary: string;
+  disclaimer: string;
+  upload_date?: string;
+};
+
+export async function analyzeReportFile(
+  file: File,
+  language: string = "hinglish",
+  consent: boolean = true,
+): Promise<ReportAnalysisResult> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  form.append("language", language);
+  form.append("consent", consent ? "true" : "false");
+
+  const response = await fetch(`${base}/api/reports/analyze`, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) await fail(response);
+  const data = (await response.json()) as ReportAnalysisResult;
+  data.upload_date = new Date().toISOString();
+  return data;
+}
+
+export function parseReportText(
+  text: string,
+  language: string = "hinglish",
+  consent: boolean = true,
+): Promise<ReportAnalysisResult> {
+  return json<ReportAnalysisResult>("/api/reports/parse-text", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, language, consent }),
+  });
+}
+

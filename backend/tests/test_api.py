@@ -331,3 +331,24 @@ def test_intake_full_clinical_dimensions() -> None:
     assert field_labels["Patient age"] == "34 years"
     assert "Relevant medical history" in field_labels
 
+
+def test_report_analysis_endpoint() -> None:
+    sample_report = (
+        "DR. LAL PATHLABS CLINICAL REPORT\n"
+        "PATIENT: Anonymous Sample\n"
+        "Hemoglobin: 11.2 g/dL (Reference: 13.0 - 17.0)\n"
+        "Fasting Blood Glucose: 110 mg/dL (Reference: 70 - 99)\n"
+        "Serum Creatinine: 0.9 mg/dL (Reference: 0.6 - 1.2)\n"
+    )
+    res = client.post("/api/reports/parse-text", json={"text": sample_report, "language": "hinglish", "consent": True})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_found"] == 3
+    assert data["out_of_range_count"] == 2  # Hemoglobin low, Glucose high
+    assert "DISCLAIMER" in data["disclaimer"]
+
+    # Test consent requirement
+    consent_err = client.post("/api/reports/parse-text", json={"text": sample_report, "consent": False})
+    assert consent_err.status_code == 400
+
+
