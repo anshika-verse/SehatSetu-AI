@@ -1,3 +1,6 @@
+<img width="1058" height="634" alt="Screenshot 2026-11-10 102223" src="https://github.com/user-attachments/assets/6cb33899-fe53-4493-9193-00617a18f8d5" />
+<img width="1347" height="632" alt="Screenshot 2026-11-10 101817" src="https://github.com/user-attachments/assets/a57fdaaa-6b25-4ce2-ab7c-9086e6cd9d76" />
+<img width="1346" height="633" alt="Screenshot 2026-11-10 101658" src="https://github.com/user-attachments/assets/920f5f5a-eb4c-4f7b-87c4-51c8e5869a00" />
 # SehatSetu AI
 
 SehatSetu AI helps people describe a health concern , review the transcript, and prepare a patient-reported summary for a qualified clinician. It is not an AI doctor. It does not diagnose, prescribe, or recommend a dose.
