@@ -12,8 +12,11 @@ from app.services.report_service import REPORT_DISCLAIMER, report_service
 
 router = APIRouter()
 
-# Ensure uploads directory exists
-UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../uploads"))
+# Ensure uploads directory exists (uses /tmp on Vercel serverless)
+if os.getenv("VERCEL"):
+    UPLOAD_DIR = "/tmp/uploads"
+else:
+    UPLOAD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../uploads"))
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 

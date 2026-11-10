@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from pathlib import Path
 
@@ -8,6 +9,8 @@ def sqlite_path() -> Path:
     raw = settings.database_url.removeprefix("sqlite:///")
     path = Path(raw)
     if not path.is_absolute():
+        if os.getenv("VERCEL"):
+            return Path("/tmp") / path.name
         path = Path(__file__).resolve().parents[2] / path
     return path
 
